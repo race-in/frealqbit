@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+#set -eux -o pipefail
+
+if [[ ! -d ~/.nginx ]]; then
+    echo "This install script requires nginx on your slot. See: https://www.feralhosting.com/wiki/software/nginx"
+    exit 1
+fi
+
+# Stop any existing processes
+rm -rf ~/.config/feral/ns/containers/docs-qbittorrent 2>/dev/null || true
+rm ~/.config/feral/user-container.d/wiki-qbittorrent 2>/dev/null || true
+pkill -9 -f qbittorrent-nox || true
+
+# Configure
+salt="$(dd if=/dev/urandom count=4 bs=4 2>/dev/null | base64)"
+pass="$(tr -dc A-Za-z0-9 </dev/urandom | head -c 15 ; echo '')"
+hmac="$(php -r "echo base64_encode(hash_pbkdf2(\"sha512\", \"$pass\", base64_decode(\"$salt\"), 100000, 0, true));")"
+mkdir -p ~/.config/qBittorrent
+echo "[LegalNotice]
+Accepted=true
+[BitTorrent]
+Session\AsyncIOThreadsCount=1
+Session\HashingThreadsCount=1
+[Preferences]
+Bittorrent\MaxConnecs=40
+Bittorrent\MaxConnecsPerTorrent=-1
+Bittorrent\MaxUploads=-1
+Bittorrent\MaxUploadsPerTorrent=-1
+Queueing\QueueingEnabled=false
+WebUI\Username=$(whoami)
+WebUI\Password_PBKDF2=\"@ByteArray($salt:$hmac)\"
+WebUI\Port=9001
+WebUI\MaxAuthenticationFailCount=60
+Downloads\SavePath=$HOME/private/qbittorrent/data" >~/.config/qBittorrent/qBittorrent.conf
+
+# Reverse proxy
+bits=$(( $(id -u) << 1 ))
+upper=$(( $bits >> 8 ))
+lower=$(( $bits - ($upper << 8) + 1 ))
+ip="10.0.$upper.$lower"
+echo "location /qbittorrent/ {
+    proxy_pass http://$ip:9001/;
+    proxy_http_version 1.1;
+    proxy_set_header   Host               \$http_x_host;
+    proxy_set_header   X-Forwarded-Host   \$http_x_host;
+    proxy_set_header   X-Forwarded-For    \$proxy_add_x_forwarded_for;
+}" >~/.nginx/conf.d/000-default-server.d/qbittorrent.conf
+rm ~/.nginx/conf.d/000-default-server.d/wiki-qbittorrent.conf 2>/dev/null || true
+/usr/sbin/nginx -s reload -c ~/.nginx/nginx.conf 2>/dev/null
+
+# Launch script
+mkdir -p ~/.config/feral/ns/containers/docs-qbittorrent
+pushd ~/.config/feral/ns/containers/docs-qbittorrent >/dev/null
+rm qbittorrent-nox 2>/dev/null || true
+echo debian-trixie >root
+
+echo -e '#!/usr/bin/env bash
+set -eux -o pipefail
+
+pushd "$FERAL_SLOTNS_PATH"
+# Update binary if missing
+if [[ ! -f qbittorrent-nox ]]; then
+    wget --no-verbose -O qbittorrent-nox https://github.com/userdocs/qbittorrent-nox-static/releases/download/release-5.2.1_v1.2.20/x86_64-qbittorrent-nox
+    chmod +x qbittorrent-nox
+    # Trigger restart
+    pkill -x qbittorrent-nox || true
+fi
+popd
+
+# Start
+cd $HOME
+[[ "$(pgrep -x '''qbittorrent-nox''')" ]] || "$FERAL_SLOTNS_PATH/qbittorrent-nox"' >start
+chmod +x start
+popd >/dev/null
+
+# Report
+echo qBittorrent has been successfully installed. It will be running in five minutes.
+echo 
+echo URL: https://$(hostname -f)/$(whoami)/qbittorrent/
+echo Username: $(whoami)
+echo Password: $pass
