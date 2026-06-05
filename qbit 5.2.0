@@ -60,7 +60,7 @@ set -eux -o pipefail
 pushd "$FERAL_SLOTNS_PATH"
 # Update binary if missing
 if [[ ! -f qbittorrent-nox ]]; then
-    wget --no-verbose -O https://github.com/jerry048/Seedbox-Components/blob/main/Torrent%20Clients/qBittorrent/x86_64/qBittorrent-4.6.7%20-%20libtorrent-v1.2.20/qbittorrent-nox
+    wget --no-verbose -O https://raw.githubusercontent.com/jerry048/Seedbox-Components/main/Torrent%20Clients/qBittorrent/x86_64/qBittorrent-4.6.7%20-%20libtorrent-v1.2.20/qbittorrent-nox
     chmod +x qbittorrent-nox
     # Trigger restart
     pkill -x qbittorrent-nox || true
